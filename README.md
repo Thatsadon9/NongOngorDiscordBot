@@ -71,8 +71,6 @@ cd NongOngorDiscordBot
 ### 2. Install Dependencies
 ```bash
 npm install
-# For Linux Server (Ubuntu/Debian) - Required for Puppeteer
-sudo apt-get install fonts-thai-tlwg fonts-kanit
 ```
 
 ### 3. Configure Environment Variables
