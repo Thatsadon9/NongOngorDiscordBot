@@ -64,7 +64,7 @@
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/YourName/NongOngorDiscordBot.git
+git clone [https://github.com/YourName/NongOngorDiscordBot.git](https://github.com/Thatsadon9/NongOngorDiscordBot.git)
 cd NongOngorDiscordBot
 ```
 
@@ -123,5 +123,5 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ---
 
 <div align="center">
-  Developed with ❤️ by <b>[Your Name]</b>
+  Developed with ❤️ by <b>Thatsadon</b>
 </div>
