@@ -64,7 +64,7 @@
 
 ### 1. Clone the repository
 ```bash
-git clone [[https://github.com/YourName/NongOngorDiscordBot.git](https://github.com/Thatsadon9/NongOngorDiscordBot.git)](https://github.com/Thatsadon9/NongOngorDiscordBot.git)
+git clone https://github.com/Thatsadon9/NongOngorDiscordBot.git
 cd NongOngorDiscordBot
 ```
 
