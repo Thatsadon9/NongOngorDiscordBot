@@ -473,32 +473,126 @@ const formatDuration = (seconds) => {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
-// ฟังก์ชันหาเพลงที่เกี่ยวข้องสำหรับ Autoplay
+// ฟังก์ชันหาเพลงที่เกี่ยวข้องสำหรับ Autoplay (ใช้ YouTube Mix/Radio)
 const findRelatedTrack = async (currentTrack) => {
   try {
-    // ค้นหาเพลงที่คล้ายกันโดยใช้ชื่อศิลปิน + "เพลง" หรือ genre keywords
-    const searchQueries = [
-      `${currentTrack.channel} เพลงเพราะ`,
-      `${currentTrack.title.split("-")[0]} เพลงคล้าย`,
-      `เพลงไทย acoustic cover`,
-      `เพลงรัก เพราะๆ`,
-    ];
+    // Extract video ID from URL
+    const videoIdMatch = currentTrack.url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    if (!videoIdMatch) {
+      console.log("⚠️ Cannot extract video ID, falling back to search");
+      return await fallbackSearchRelated(currentTrack);
+    }
+    const videoId = videoIdMatch[1];
 
-    // สุ่มเลือก query
-    const randomQuery = searchQueries[Math.floor(Math.random() * searchQueries.length)];
-    console.log(`🔍 Autoplay searching: ${randomQuery}`);
+    // Use YouTube Mix (RD = Radio/Mix playlist based on video)
+    const mixUrl = `https://www.youtube.com/watch?v=${videoId}&list=RD${videoId}`;
+    console.log(`🔍 Autoplay: Fetching YouTube Mix for ${videoId}`);
 
-    const results = await YouTube.search(randomQuery, { limit: 10, type: "video" });
+    return new Promise((resolve) => {
+      const ytDlp = spawn('yt-dlp', [
+        '--flat-playlist',
+        '-j',
+        '--playlist-items', '2:8', // Get items 2-8 (skip first which is current song)
+        '--no-warnings',
+        '-q',
+        mixUrl
+      ]);
+
+      let output = '';
+      let errorOutput = '';
+
+      ytDlp.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      ytDlp.stderr.on('data', (data) => {
+        errorOutput += data.toString();
+      });
+
+      ytDlp.on('close', async (code) => {
+        if (code !== 0 || !output.trim()) {
+          console.log(`⚠️ YouTube Mix failed (code: ${code}), falling back to search`);
+          resolve(await fallbackSearchRelated(currentTrack));
+          return;
+        }
+
+        try {
+          const lines = output.trim().split('\n').filter(line => line.trim());
+          const videos = lines.map(line => JSON.parse(line));
+
+          // Filter out current video
+          const filtered = videos.filter(v => v.id !== videoId);
+          if (filtered.length === 0) {
+            resolve(await fallbackSearchRelated(currentTrack));
+            return;
+          }
+
+          // Pick random from top results (more likely to be relevant)
+          const randomVideo = filtered[Math.floor(Math.random() * Math.min(5, filtered.length))];
+          console.log(`✨ Autoplay found (Mix): ${randomVideo.title}`);
+
+          resolve({
+            title: randomVideo.title || "Unknown",
+            url: `https://www.youtube.com/watch?v=${randomVideo.id}`,
+            duration: randomVideo.duration_string || "Unknown",
+            thumbnail: randomVideo.thumbnails?.[0]?.url || null,
+            channel: randomVideo.channel || randomVideo.uploader || "Unknown",
+            requestedBy: "🤖 Autoplay (Mix)",
+          });
+        } catch (parseError) {
+          console.error("Parse error:", parseError);
+          resolve(await fallbackSearchRelated(currentTrack));
+        }
+      });
+
+      ytDlp.on('error', async (error) => {
+        console.error("yt-dlp error:", error);
+        resolve(await fallbackSearchRelated(currentTrack));
+      });
+
+      // Timeout after 15 seconds
+      setTimeout(async () => {
+        ytDlp.kill();
+        console.log("⚠️ YouTube Mix timeout, falling back to search");
+        resolve(await fallbackSearchRelated(currentTrack));
+      }, 15000);
+    });
+  } catch (error) {
+    console.error("Autoplay error:", error);
+    return await fallbackSearchRelated(currentTrack);
+  }
+};
+
+// Fallback: ค้นหาด้วยชื่อเพลงและศิลปินจริงๆ (ไม่ใช่ random query)
+const fallbackSearchRelated = async (currentTrack) => {
+  try {
+    // Clean up title - remove common patterns like (Official MV), [Lyrics], etc.
+    const cleanTitle = (currentTrack.title || "")
+      .replace(/\(.*?\)/g, '')
+      .replace(/\[.*?\]/g, '')
+      .replace(/official|video|audio|lyrics|mv|hd|4k|music\s*video/gi, '')
+      .replace(/\|.*/g, '') // Remove everything after |
+      .trim();
+
+    const channel = currentTrack.channel || "";
+
+    // Search query based on actual song info
+    const searchQuery = cleanTitle || channel;
+    console.log(`🔍 Autoplay fallback search: "${searchQuery}"`);
+
+    const results = await YouTube.search(searchQuery, { limit: 15, type: "video" });
 
     if (!results || results.length === 0) {
       return null;
     }
 
-    // สุ่มเลือกเพลงจากผลลัพธ์ (ไม่เอาเพลงเดิม)
-    const filteredResults = results.filter(v => v.url !== currentTrack.url);
-    if (filteredResults.length === 0) return null;
+    // Filter out current track
+    const filtered = results.filter(v => v.url !== currentTrack.url);
+    if (filtered.length === 0) return null;
 
-    const randomVideo = filteredResults[Math.floor(Math.random() * filteredResults.length)];
+    // Pick from top 5 results (more relevant)
+    const randomVideo = filtered[Math.floor(Math.random() * Math.min(5, filtered.length))];
+    console.log(`✨ Autoplay found (Search): ${randomVideo.title}`);
 
     return {
       title: randomVideo.title || "Unknown",
@@ -506,10 +600,10 @@ const findRelatedTrack = async (currentTrack) => {
       duration: randomVideo.durationFormatted || "Unknown",
       thumbnail: randomVideo.thumbnail?.url || null,
       channel: randomVideo.channel?.name || "Unknown",
-      requestedBy: "🤖 Autoplay",
+      requestedBy: "🤖 Autoplay (Search)",
     };
   } catch (error) {
-    console.error("Autoplay search error:", error);
+    console.error("Fallback search error:", error);
     return null;
   }
 };
