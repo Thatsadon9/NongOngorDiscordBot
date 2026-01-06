@@ -24,8 +24,9 @@ const {
   StreamType,
   NoSubscriberBehavior,
 } = require("@discordjs/voice");
-const YouTube = require("youtube-sr").default;
-const { spawn } = require("child_process");
+const YouTube = require("youtube-sr").default; // You can remove this if using play-dl for search
+const play = require("play-dl"); // Keep play-dl for searching
+const { spawn } = require("child_process"); // <--- ADD THIS BACK
 const fs = require("fs");
 const path = require("path");
 
@@ -36,7 +37,7 @@ const path = require("path");
 const CONFIG = {
   SHEET_WEB_URL:
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vTwjOqR5KLulWduYOI1_sNIFG45uG_D-UPo8OJUpCaoxeL_FVrjepgMmfmtVaM8AfLWTUqh9FKK8xH-/pubhtml?gid=123557804&single=true",
-  N8N_WEBHOOK_URL: "https://thatsadon.app.n8n.cloud/webhook/nongongor",
+  N8N_WEBHOOK_URL: "http://localhost:5678/webhook/nongongor",
   GOOGLE_SHEET_LINK:
     "https://docs.google.com/spreadsheets/d/158tGp9w9uR7yRf9xfyQABV5vUTc9hcUjfDPV5klHLzI/edit?usp=sharing",
   KANIT_FONT_URL:
@@ -482,23 +483,23 @@ const findRelatedTrack = async (currentTrack) => {
       `เพลงไทย acoustic cover`,
       `เพลงรัก เพราะๆ`,
     ];
-    
+
     // สุ่มเลือก query
     const randomQuery = searchQueries[Math.floor(Math.random() * searchQueries.length)];
     console.log(`🔍 Autoplay searching: ${randomQuery}`);
-    
+
     const results = await YouTube.search(randomQuery, { limit: 10, type: "video" });
-    
+
     if (!results || results.length === 0) {
       return null;
     }
-    
+
     // สุ่มเลือกเพลงจากผลลัพธ์ (ไม่เอาเพลงเดิม)
     const filteredResults = results.filter(v => v.url !== currentTrack.url);
     if (filteredResults.length === 0) return null;
-    
+
     const randomVideo = filteredResults[Math.floor(Math.random() * filteredResults.length)];
-    
+
     return {
       title: randomVideo.title || "Unknown",
       url: randomVideo.url,
@@ -517,88 +518,90 @@ const playNextTrack = async (guildId) => {
   const musicQueue = getMusicQueue(guildId);
   const { queue, player, connection, textChannel, autoplay, lastTrack } = musicQueue;
 
-  // ถ้าคิวว่างและเปิด Autoplay อยู่ ให้หาเพลงที่เกี่ยวข้อง
+  // ═══════════════════════════════════════════════════════════════
+  // 🔄 AUTOPLAY LOGIC (แก้ไขใหม่: ใช้ findRelatedTrack)
+  // ═══════════════════════════════════════════════════════════════
   if (queue.length === 0 && autoplay && lastTrack) {
-    console.log("🔄 Autoplay: Finding related track...");
-    if (textChannel) {
-      textChannel.send("🔄 **Autoplay:** กำลังหาเพลงที่คล้ายกัน...");
-    }
-    
-    const relatedTrack = await findRelatedTrack(lastTrack);
-    if (relatedTrack) {
-      queue.push(relatedTrack);
-      console.log(`✨ Autoplay found: ${relatedTrack.title}`);
-    } else {
-      musicQueue.currentTrack = null;
-      if (textChannel) {
-        textChannel.send("📭 Autoplay หาเพลงไม่เจอแล้วครับ!");
+    if (textChannel) textChannel.send("🔄 **Autoplay:** กำลังหาเพลงที่คล้ายกัน...");
+
+    try {
+      // ✅ เรียกใช้ฟังก์ชัน findRelatedTrack ที่คุณเขียนไว้ด้านบน
+      const trackInfo = await findRelatedTrack(lastTrack);
+
+      if (trackInfo) {
+        queue.push(trackInfo);
+        console.log(`✨ Autoplay found: ${trackInfo.title}`);
+        // เมื่อเจอเพลงแล้ว ปล่อยให้โค้ดไหลลงไปข้างล่างเพื่อเล่นเพลงนี้
+      } else {
+        if (textChannel) textChannel.send("📭 Autoplay หาเพลงไม่เจอแล้วครับ!");
+        musicQueue.currentTrack = null;
+        return;
       }
+    } catch (e) {
+      console.error("Autoplay Error:", e);
+      musicQueue.currentTrack = null;
       return;
     }
   }
+  // ═══════════════════════════════════════════════════════════════
 
   if (queue.length === 0) {
     musicQueue.currentTrack = null;
-    if (textChannel) {
-      textChannel.send("📭 เพลงหมดคิวแล้วครับ!");
-    }
+    if (textChannel) textChannel.send("📭 เพลงหมดคิวแล้วครับ!");
     return;
   }
 
   const track = queue.shift();
   musicQueue.currentTrack = track;
-  musicQueue.lastTrack = track; // เก็บไว้สำหรับ Autoplay
+  musicQueue.lastTrack = track;
 
   try {
-    console.log(`🎵 กำลังโหลดเพลง: ${track.title}`);
-    console.log(`🔗 Track URL: ${track.url}`);
-    
-    if (!track.url) {
-      throw new Error("Track URL is undefined!");
-    }
-    
-    // Use yt-dlp to stream audio
-    const ytdlp = spawn("yt-dlp", [
-      "-f", "bestaudio",
-      "-o", "-",
-      "--no-warnings",
-      "--quiet",
+    if (!track.url) throw new Error("Track URL is undefined");
+
+    console.log(`🎵 กำลังโหลดเพลง (via yt-dlp): ${track.title}`);
+    console.log(`🔗 Link: ${track.url}`);
+
+    // 🛠️ FIX: Use yt-dlp for streaming (More stable than play-dl stream)
+    const ytDlpProcess = spawn('yt-dlp', [
+      '-o', '-',             // Output to stdout
+      '-q',                  // Quiet mode
+      '-f', 'bestaudio',     // Best audio format
+      '--no-warnings',       // Suppress warnings
+      '-R', 'infinite',      // Infinite retries
       track.url
-    ]);
+    ], { stdio: ['ignore', 'pipe', 'ignore'] });
 
-    ytdlp.stderr.on("data", (data) => {
-      console.error("yt-dlp stderr:", data.toString());
-    });
-
-    ytdlp.on("error", (error) => {
-      console.error("yt-dlp spawn error:", error);
-    });
-
-    const resource = createAudioResource(ytdlp.stdout, {
+    const resource = createAudioResource(ytDlpProcess.stdout, {
       inputType: StreamType.Arbitrary,
       inlineVolume: true,
     });
-    
-    resource.volume?.setVolume(1);
 
+    resource.volume?.setVolume(1);
     player.play(resource);
-    console.log(`✅ เริ่มเล่นเพลง: ${track.title}`);
+
+    // Handle yt-dlp errors
+    ytDlpProcess.on('error', (error) => {
+      console.error("yt-dlp process error:", error);
+      if (textChannel) textChannel.send(`❌ เกิดข้อผิดพลาดกับ yt-dlp: ${error.message}`);
+      playNextTrack(guildId);
+    });
 
     if (textChannel) {
       textChannel.send({
         embeds: [
           new EmbedBuilder()
             .setColor(0x00ff00)
-            .setDescription(`🎶 เริ่มเล่น: **[${track.title}](${track.url})**`),
+            .setDescription(`🎶 เริ่มเล่น: **[${track.title}](${track.url})**`)
+            .setThumbnail(track.thumbnail)
+            .setFooter({ text: `ขอโดย ${track.requestedBy}` }),
         ],
       });
     }
   } catch (error) {
-    console.error("Stream Error:", error.message);
+    console.error("Stream Error:", error);
     if (textChannel) {
       textChannel.send(`❌ ไม่สามารถเล่นเพลง "${track.title}" ได้ - ${error.message}`);
     }
-    // Try next track
     playNextTrack(guildId);
   }
 };
@@ -613,56 +616,62 @@ const handlePlayCommand = async (interaction) => {
     });
   }
 
+  // Ensure we have the query option
   const query = interaction.options.getString("query", true);
   await interaction.deferReply();
 
   try {
     let trackInfo;
 
-    // Check if it's a YouTube URL
-    const ytUrlRegex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
-    const match = query.match(ytUrlRegex);
-    
-    if (match) {
-      // Get video info from YouTube
-      const video = await YouTube.getVideo(query);
-      if (!video) {
-        return interaction.editReply("❌ ไม่พบวิดีโอจากลิงก์นี้ครับ");
-      }
+    // 1. Validate if the input is a URL or a Search Query
+    const validation = await play.validate(query);
+
+    if (validation === "yt_video") {
+      // ✅ Case 1: It is a direct YouTube Link
+      const videoInfo = await play.video_info(query);
+      const video = videoInfo.video_details;
+
       trackInfo = {
-        title: video.title,
+        title: video.title || "Unknown Title",
         url: video.url,
-        duration: video.durationFormatted || "Unknown",
-        thumbnail: video.thumbnail?.url,
-        channel: video.channel?.name,
+        duration: video.durationRaw || "Unknown",
+        thumbnail: video.thumbnails[0]?.url || null,
+        channel: video.channel?.name || "Unknown Channel",
         requestedBy: interaction.user.username,
       };
-      console.log("📹 Video URL:", trackInfo.url);
-    } else {
-      // Search YouTube
-      const searchResult = await YouTube.searchOne(query);
-      
-      if (!searchResult) {
+
+    } else if (validation === "search") {
+      // ✅ Case 2: It is a search term
+      const searchResults = await play.search(query, {
+        limit: 1,
+        source: { youtube: "video" }
+      });
+
+      if (searchResults.length === 0) {
         return interaction.editReply("❌ ไม่พบเพลงที่ค้นหาครับ ลองใช้คำค้นอื่นดูนะ");
       }
-      
-      console.log("🔍 Search result:", searchResult.title, searchResult.url);
-      
+
+      const video = searchResults[0];
+
       trackInfo = {
-        title: searchResult.title || "Unknown",
-        url: searchResult.url,
-        duration: searchResult.durationFormatted || "Unknown",
-        thumbnail: searchResult.thumbnail?.url || null,
-        channel: searchResult.channel?.name || "Unknown",
+        title: video.title || "Unknown Title",
+        url: video.url,
+        duration: video.durationRaw || "Unknown",
+        thumbnail: video.thumbnails[0]?.url || null,
+        channel: video.channel?.name || "Unknown Channel",
         requestedBy: interaction.user.username,
       };
-      console.log("📹 Search Video URL:", trackInfo.url);
+
+    } else {
+      // ❌ Case 3: Invalid input (Not a YT video or valid search)
+      return interaction.editReply("❌ รองรับเฉพาะลิงก์ YouTube หรือคำค้นหาเท่านั้นครับ (Playlist ยังไม่รองรับในเวอร์ชันนี้)");
     }
 
+    // 2. Setup Music Queue & Voice Connection
     const musicQueue = getMusicQueue(interaction.guildId);
     musicQueue.textChannel = interaction.channel;
 
-    // Connect to voice channel if not connected
+    // Connect if not already connected
     if (!musicQueue.connection || musicQueue.connection.state.status === VoiceConnectionStatus.Destroyed) {
       const connection = joinVoiceChannel({
         channelId: channel.id,
@@ -671,14 +680,13 @@ const handlePlayCommand = async (interaction) => {
         selfDeaf: false,
       });
 
-      // Wait for connection to be ready
       try {
         await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
         console.log("✅ Voice connection ready!");
       } catch (error) {
         connection.destroy();
         console.error("Connection Error:", error);
-        return interaction.editReply("❌ ไม่สามารถเชื่อมต่อห้องเสียงได้");
+        return interaction.editReply("❌ ไม่สามารถเชื่อมต่อห้องเสียงได้ (Timeout)");
       }
 
       const audioPlayer = createAudioPlayer({
@@ -687,6 +695,7 @@ const handlePlayCommand = async (interaction) => {
         },
       });
 
+      // Event Listeners for Player
       audioPlayer.on(AudioPlayerStatus.Idle, () => {
         console.log("🔄 Player idle, playing next track...");
         playNextTrack(interaction.guildId);
@@ -698,12 +707,13 @@ const handlePlayCommand = async (interaction) => {
 
       audioPlayer.on("error", (error) => {
         console.error("Audio Player Error:", error);
+        // If player crashes, try next song
         playNextTrack(interaction.guildId);
       });
 
       connection.subscribe(audioPlayer);
 
-      // Handle disconnect
+      // Handle Manual Disconnects
       connection.on(VoiceConnectionStatus.Disconnected, async () => {
         try {
           await Promise.race([
@@ -720,14 +730,16 @@ const handlePlayCommand = async (interaction) => {
       musicQueue.player = audioPlayer;
     }
 
-    // Add to queue or play immediately
+    // 3. Add to Queue or Play Immediately
     if (musicQueue.currentTrack) {
+      // If something is already playing, add to queue
       musicQueue.queue.push(trackInfo);
       await interaction.editReply({
         content: `✅ เพิ่มเพลงลงคิวแล้ว! (ลำดับที่ ${musicQueue.queue.length})`,
         embeds: [generateNowPlayingEmbed(trackInfo)],
       });
     } else {
+      // If queue is empty, play immediately
       musicQueue.queue.push(trackInfo);
       await interaction.editReply({
         content: `✅ กำลังเล่นเพลง!`,
@@ -735,11 +747,11 @@ const handlePlayCommand = async (interaction) => {
       });
       playNextTrack(interaction.guildId);
     }
+
   } catch (error) {
-    console.error("Play Error:", error);
+    console.error("Play Command Error:", error);
     await interaction.editReply(
-      "❌ เกิดข้อผิดพลาดในการเล่นเพลง กรุณาลองใหม่อีกครั้ง\n" +
-      `รายละเอียด: \`${error.message}\``
+      `❌ เกิดข้อผิดพลาดในการเล่นเพลง: \`${error.message}\``
     );
   }
 };
@@ -807,23 +819,23 @@ const handleResumeCommand = async (interaction) => {
 
 const handleAutoplayCommand = async (interaction) => {
   const musicQueue = getMusicQueue(interaction.guildId);
-  
+
   // Toggle autoplay
   musicQueue.autoplay = !musicQueue.autoplay;
-  
+
   const status = musicQueue.autoplay ? "เปิด" : "ปิด";
   const emoji = musicQueue.autoplay ? "🔄" : "⏹️";
   const color = musicQueue.autoplay ? 0x00ff00 : 0xff0000;
-  
+
   const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(`${emoji} Autoplay: ${status}`)
     .setDescription(
-      musicQueue.autoplay 
+      musicQueue.autoplay
         ? "เมื่อเพลงหมดคิว บอทจะหาเพลงที่คล้ายกันมาเล่นต่อให้อัตโนมัติ 🎵"
         : "บอทจะหยุดเล่นเมื่อเพลงหมดคิว"
     );
-  
+
   await interaction.reply({ embeds: [embed] });
 };
 
