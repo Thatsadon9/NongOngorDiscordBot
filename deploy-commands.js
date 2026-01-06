@@ -11,12 +11,46 @@ const commands = [
     new SlashCommandBuilder()
         .setName('addevent')
         .setDescription('เพิ่มกำหนดการลง Google Sheets')
-        .addStringOption(option => option.setName('dummy').setDescription('กด Enter เพื่อเปิดแบบฟอร์ม')), // ใส่หลอกๆ เพื่อให้กดง่ายขึ้น
+        .addStringOption(option => option.setName('dummy').setDescription('กด Enter เพื่อเปิดแบบฟอร์ม')),
 
     // 3. คำสั่งถ่ายรูปตาราง (Puppeteer)
     new SlashCommandBuilder()
         .setName('schedule')
         .setDescription('📸 ถ่ายรูปตาราง Timeline ล่าสุดมาโชว์'),
+
+    // 4. คำสั่งเล่นเพลง (Music)
+    new SlashCommandBuilder()
+        .setName('play')
+        .setDescription('🎵 เล่นเพลงจาก YouTube')
+        .addStringOption(option =>
+            option.setName('query')
+                .setDescription('ลิงก์ YouTube หรือชื่อเพลง')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('skip')
+        .setDescription('⏭️ ข้ามไปเพลงถัดไป'),
+
+    new SlashCommandBuilder()
+        .setName('stop')
+        .setDescription('⏹️ หยุดเล่นเพลงและออกจากห้อง'),
+
+    new SlashCommandBuilder()
+        .setName('queue')
+        .setDescription('📜 ดูรายการเพลงที่รอเล่น'),
+
+    new SlashCommandBuilder()
+        .setName('pause')
+        .setDescription('⏸️ หยุดเพลงชั่วคราว'),
+
+    new SlashCommandBuilder()
+        .setName('resume')
+        .setDescription('▶️ เล่นเพลงต่อ'),
+
+    new SlashCommandBuilder()
+        .setName('autoplay')
+        .setDescription('🔄 เปิด/ปิด Autoplay - เล่นเพลงที่คล้ายกันต่ออัตโนมัติ'),
 ]
 .map(command => command.toJSON());
 
